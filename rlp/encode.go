@@ -383,7 +383,7 @@ func isByte(typ reflect.Type) bool {
 }
 
 func writeRawValue(val reflect.Value, w *encbuf) error {
-	w.str = append(w.str, val.Bytes()...)
+	w.str = append(w.str, val.Bytes()...) //val.Bytes()返回一个切片，所以参数要加...
 	return nil
 }
 
@@ -532,6 +532,7 @@ func makeStructWriter(typ reflect.Type) (writer, error) {
 	writer := func(val reflect.Value, w *encbuf) error {
 		lh := w.list()
 		for _, f := range fields {
+			////f是field结构， f.info是typeinfo的指针， 所以这里其实是调用字段的编码器方法。
 			if err := f.info.writer(val.Field(f.index), w); err != nil {
 				return err
 			}

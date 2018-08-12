@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
+// typecache.go主要是实现的目的是：GO语言本身不支持重载， 也没有泛型，所以函数的分派就需要自己实现了。
 package rlp
 
 import (
@@ -24,11 +24,11 @@ import (
 )
 
 var (
-	typeCacheMutex sync.RWMutex
-	typeCache      = make(map[typekey]*typeinfo)
+	typeCacheMutex sync.RWMutex                  //读写锁，用来在多线程的时候保护typeCache这个Map
+	typeCache      = make(map[typekey]*typeinfo) //核心数据结构，保存了类型->编解码器函数
 )
 
-type typeinfo struct {
+type typeinfo struct { //存储了编码器和解码器函数
 	decoder
 	writer
 }
@@ -57,10 +57,10 @@ type decoder func(*Stream, reflect.Value) error
 type writer func(reflect.Value, *encbuf) error
 
 func cachedTypeInfo(typ reflect.Type, tags tags) (*typeinfo, error) {
-	typeCacheMutex.RLock()
+	typeCacheMutex.RLock() ////加读锁来保护
 	info := typeCache[typekey{typ, tags}]
 	typeCacheMutex.RUnlock()
-	if info != nil {
+	if info != nil { //如果成功获取到信息，则说明结构里有这个类型的缓存，那么就返回
 		return info, nil
 	}
 	// not in the cache, need to generate info for this type.
@@ -74,11 +74,13 @@ func cachedTypeInfo1(typ reflect.Type, tags tags) (*typeinfo, error) {
 	info := typeCache[key]
 	if info != nil {
 		// another goroutine got the write lock first
+		//其他的线程可能已经创建成功了， 那么我们直接获取到信息然后返回
 		return info, nil
 	}
 	// put a dummmy value into the cache before generating.
 	// if the generator tries to lookup itself, it will get
 	// the dummy value and won't call itself recursively.
+	//这个地方首先创建了一个值来填充这个类型的位置，避免遇到一些递归定义的数据类型形成死循环
 	typeCache[key] = new(typeinfo)
 	info, err := genTypeInfo(typ, tags)
 	if err != nil {
@@ -95,6 +97,11 @@ type field struct {
 	info  *typeinfo
 }
 
+/*
+structFields函数遍历所有的字段，然后针对每一个字段调用cachedTypeInfo1。
+可以看到这是一个递归的调用过程。 上面的代码中有一个需要注意的是f.PkgPath == ""
+这个判断针对的是所有导出的字段， 所谓的导出的字段就是说以大写字母开头命令的字段。
+*/
 func structFields(typ reflect.Type) (fields []field, err error) {
 	for i := 0; i < typ.NumField(); i++ {
 		if f := typ.Field(i); f.PkgPath == "" { // exported
