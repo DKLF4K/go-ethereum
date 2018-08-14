@@ -67,6 +67,22 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 //go:generate gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
 
 // Header represents a block header in the Ethereum blockchain.
+/*
+ParentHash: 对应前一个区块（父区块）的 Hash；
+UncleHash: 当前区块的 uncle 链的 Hash；
+Coinbase: 矿工地址；
+Root: Transaction Root Hash，交易字典树根结点hash，交易记录构成的 Merkle 树的根，在交易字典树上含有区块中的所有交易列表；
+TxHash: 交易 Hash
+ReceiptHash: 接收方的字典树根节点 hash；
+Difficulty: 当前区块工作量证明（PoW）算法的复杂度，表示当前区块的难度水平，这一个值根据前一个区块的难度水平和时间戳计算得到；
+Number: 区块体中的交易数目；
+GasLimit: Gas 限制，表示目前每个区块的 Gas 消耗上限；
+GasUsed: Gas 使用量，当前区块的所有交易使用的 Gas 之和；
+Time: 时间戳（区块初始化时的Unix时间戳）；
+Extra: 额外的信息，字节数组；
+MixDigest: 签名
+Nonce: PoW 中使用的随机数；
+*/
 type Header struct {
 	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
 	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
@@ -153,11 +169,12 @@ type Block struct {
 
 	// Td is used by package core to store the total difficulty
 	// of the chain up to and including the block.
+	// total difficulty，总体复杂度
 	td *big.Int
 
 	// These fields are used by package eth to track
 	// inter-peer block relay.
-	ReceivedAt   time.Time
+	ReceivedAt   time.Time //接收块的时间
 	ReceivedFrom interface{}
 }
 
@@ -197,13 +214,17 @@ type storageblock struct {
 // The values of TxHash, UncleHash, ReceiptHash and Bloom in header
 // are ignored and set to values derived from the given txs, uncles
 // and receipts.
+// 创建区块
 func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt) *Block {
 	b := &Block{header: CopyHeader(header), td: new(big.Int)}
 
 	// TODO: panic if len(txs) != len(receipts)
 	if len(txs) == 0 {
+		// 无交易记录，生成 EmptyRootHash
 		b.header.TxHash = EmptyRootHash
 	} else {
+		// 生成 Transaction Root Hash
+		// Merkle Patricia Tree
 		b.header.TxHash = DeriveSha(Transactions(txs))
 		b.transactions = make(Transactions, len(txs))
 		copy(b.transactions, txs)

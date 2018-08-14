@@ -70,7 +70,7 @@ var (
 // known peers in the network. If no path is given, an in-memory, temporary
 // database is constructed.
 func newNodeDB(path string, version int, self NodeID) (*nodeDB, error) {
-	if path == "" {
+	if path == "" { //根据参数path来看打开基于内存的数据库，还是基于文件的数据库
 		return newMemoryNodeDB(self)
 	}
 	return newPersistentNodeDB(path, version, self)
@@ -117,6 +117,7 @@ func newPersistentNodeDB(path string, version int, self NodeID) (*nodeDB, error)
 
 	case nil:
 		// Version present, flush if different
+		//版本不同，先删除所有的数据库文件，重新创建一个
 		if !bytes.Equal(blob, currentVer) {
 			db.Close()
 			if err = os.RemoveAll(path); err != nil {

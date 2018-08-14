@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
+// peer代表了一条创建好的网络链路。在一条链路上可能运行着多个协议。比如以太坊的协议(eth)。 Swarm的协议。 或者是Whisper的协议
 package p2p
 
 import (
@@ -236,6 +236,7 @@ loop:
 	return remoteRequested, err
 }
 
+//就是定时的发送pingMsg消息到对端
 func (p *Peer) pingLoop() {
 	ping := time.NewTimer(pingInterval)
 	defer p.wg.Done()
@@ -270,6 +271,7 @@ func (p *Peer) readLoop(errc chan<- error) {
 	}
 }
 
+//根据Msg的类型进行对应的处理，如果Msg的类型是内部运行的协议的类型。那么发送到对应协议的proto.in队列上
 func (p *Peer) handle(msg Msg) error {
 	switch {
 	case msg.Code == pingMsg:
@@ -337,8 +339,10 @@ outer:
 	return result
 }
 
+//这个方法遍历所有的协议
 func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error) {
 	p.wg.Add(len(p.running))
+	//
 	for _, proto := range p.running {
 		proto := proto
 		proto.closed = p.closed
@@ -349,8 +353,9 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
 		p.log.Trace(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
+		//等于这里为每一个协议都开启了一个goroutine。 调用其Run方法
 		go func() {
-			err := proto.Run(p, rw)
+			err := proto.Run(p, rw) //这个方法应该是一个无限循环。 如果返回就说明遇到了错误
 			if err == nil {
 				p.log.Trace(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
 				err = errProtocolReturned

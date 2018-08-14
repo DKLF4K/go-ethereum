@@ -418,10 +418,12 @@ func (tab *Table) doRefresh(done chan struct{}) {
 	// Load nodes from the database and insert
 	// them. This should yield a few previously seen nodes that are
 	// (hopefully) still alive.
+	//从数据库里面随机的查找可用的种子节点。
+	//在最开始启动的时候数据库是空白的。也就是最开始的时候这个seeds返回的是空的
 	tab.loadSeedNodes()
 
 	// Run self lookup to discover new neighbor nodes.
-	tab.lookup(tab.self.ID, false)
+	tab.lookup(tab.self.ID, false) //查找距离target最近的k个节点
 
 	// The Kademlia paper specifies that the bucket refresh should
 	// perform a lookup in the least recently used bucket. We cannot

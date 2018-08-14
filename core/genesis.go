@@ -150,26 +150,30 @@ func (e *GenesisMismatchError) Error() string {
 // error is a *params.ConfigCompatError and the new, unwritten config is returned.
 //
 // The returned chain configuration is never nil.
+//genesis 如果是 testnet dev 或者是 rinkeby 模式， 那么不为nil。如果是mainnet或者是私有链接。那么为空
 func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig, common.Hash, error) {
 	if genesis != nil && genesis.Config == nil {
 		return params.AllEthashProtocolChanges, common.Hash{}, errGenesisNoConfig
 	}
 
 	// Just commit the new block if there is no stored genesis block.
-	stored := rawdb.ReadCanonicalHash(db, 0)
-	if (stored == common.Hash{}) {
+	stored := rawdb.ReadCanonicalHash(db, 0) //获取genesis对应的区块
+	if (stored == common.Hash{}) {           //如果没有区块 最开始启动geth会进入这里
 		if genesis == nil {
+			//如果genesis是nil 而且stored也是nil 那么使用主网络
+			// 如果是test  dev  rinkeby 那么genesis不为空 会设置为各自的genesis
 			log.Info("Writing default main-net genesis block")
 			genesis = DefaultGenesisBlock()
-		} else {
+		} else { // 否则使用配置的区块
 			log.Info("Writing custom genesis block")
 		}
+		// 写入数据库
 		block, err := genesis.Commit(db)
 		return genesis.Config, block.Hash(), err
 	}
 
 	// Check whether the genesis block is already written.
-	if genesis != nil {
+	if genesis != nil { //如果genesis存在而且区块也存在 那么对比这两个区块是否相同
 		hash := genesis.ToBlock(nil).Hash()
 		if hash != stored {
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
@@ -187,21 +191,26 @@ func SetupGenesisBlock(db ethdb.Database, genesis *Genesis) (*params.ChainConfig
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
 	// if we just continued here.
+	// 特殊情况：如果没有提供新的配置，请不要更改非主网链的现有配置。
+	// 如果我们继续这里，这些链会得到AllProtocolChanges（和compat错误）。
 	if genesis == nil && stored != params.MainnetGenesisHash {
 		return storedcfg, stored, nil
 	}
 
 	// Check config compatibility and write the config. Compatibility errors
 	// are returned to the caller unless we're already at block zero.
+	// 检查配置的兼容性,除非我们在区块0,否则返回兼容性错误.
 	height := rawdb.ReadHeaderNumber(db, rawdb.ReadHeadHeaderHash(db))
 	if height == nil {
 		return newcfg, stored, fmt.Errorf("missing block number for head header hash")
 	}
 	compatErr := storedcfg.CheckCompatible(newcfg, *height)
+	// 如果区块已经写入数据了,那么就不能更改genesis配置了
 	if compatErr != nil && *height != 0 && compatErr.RewindTo != 0 {
 		return newcfg, stored, compatErr
 	}
 	rawdb.WriteChainConfig(db, stored, newcfg)
+	// 如果是主网络会从这里退出。
 	return newcfg, stored, nil
 }
 
@@ -266,17 +275,18 @@ func (g *Genesis) Commit(db ethdb.Database) (*types.Block, error) {
 	if block.Number().Sign() != 0 {
 		return nil, fmt.Errorf("can't commit genesis block with number > 0")
 	}
-	rawdb.WriteTd(db, block.Hash(), block.NumberU64(), g.Difficulty)
-	rawdb.WriteBlock(db, block)
-	rawdb.WriteReceipts(db, block.Hash(), block.NumberU64(), nil)
-	rawdb.WriteCanonicalHash(db, block.Hash(), block.NumberU64())
-	rawdb.WriteHeadBlockHash(db, block.Hash())
-	rawdb.WriteHeadHeaderHash(db, block.Hash())
+	rawdb.WriteTd(db, block.Hash(), block.NumberU64(), g.Difficulty) // 写入总难度
+	rawdb.WriteBlock(db, block)                                      // 写入区块
+	rawdb.WriteReceipts(db, block.Hash(), block.NumberU64(), nil)    // 写入区块收据
+	rawdb.WriteCanonicalHash(db, block.Hash(), block.NumberU64())    //写入   headerPrefix + num (uint64 big endian) + numSuffix -> hash
+	rawdb.WriteHeadBlockHash(db, block.Hash())                       //写入  "LastBlock" -> hash
+	rawdb.WriteHeadHeaderHash(db, block.Hash())                      // 写入 "LastHeader" -> hash
 
 	config := g.Config
 	if config == nil {
 		config = params.AllEthashProtocolChanges
 	}
+	// 写入 ethereum-config-hash -> config
 	rawdb.WriteChainConfig(db, block.Hash(), config)
 	return block, nil
 }
@@ -298,6 +308,7 @@ func GenesisBlockForTesting(db ethdb.Database, addr common.Address, balance *big
 }
 
 // DefaultGenesisBlock returns the Ethereum main net genesis block.
+//创世区块的配置
 func DefaultGenesisBlock() *Genesis {
 	return &Genesis{
 		Config:     params.MainnetChainConfig,

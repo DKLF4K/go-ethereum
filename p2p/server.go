@@ -421,7 +421,7 @@ func (s *sharedUDPConn) Close() error {
 func (srv *Server) Start() (err error) {
 	srv.lock.Lock()
 	defer srv.lock.Unlock()
-	if srv.running {
+	if srv.running { //避免多次启动
 		return errors.New("server already running")
 	}
 	srv.running = true
@@ -459,7 +459,7 @@ func (srv *Server) Start() (err error) {
 		unhandled chan discover.ReadPacket
 	)
 
-	if !srv.NoDiscovery || srv.DiscoveryV5 {
+	if !srv.NoDiscovery || srv.DiscoveryV5 { //启动discover网络。 开启UDP的监听。
 		addr, err := net.ResolveUDPAddr("udp", srv.ListenAddr)
 		if err != nil {
 			return err
@@ -515,6 +515,7 @@ func (srv *Server) Start() (err error) {
 		if err != nil {
 			return err
 		}
+		//设置最开始的启动节点。当找不到其他的节点的时候。 那么就连接这些启动节点。这些节点的信息是写死在配置文件里面的
 		if err := ntab.SetFallbackNodes(srv.BootstrapNodesV5); err != nil {
 			return err
 		}
@@ -525,6 +526,7 @@ func (srv *Server) Start() (err error) {
 	dialer := newDialState(srv.StaticNodes, srv.BootstrapNodes, srv.ntab, dynPeers, srv.NetRestrict)
 
 	// handshake
+	//我们自己的协议的handShake
 	srv.ourHandshake = &protoHandshake{Version: baseProtocolVersion, Name: srv.Name, ID: discover.PubkeyID(&srv.PrivateKey.PublicKey)}
 	for _, p := range srv.Protocols {
 		srv.ourHandshake.Caps = append(srv.ourHandshake.Caps, p.cap())
@@ -574,6 +576,7 @@ type dialer interface {
 	removeStatic(*discover.Node)
 }
 
+//主动发起连接来连接外部节点的流程。 以及处理刚才上面的checkpoint队列信息的流程
 func (srv *Server) run(dialstate dialer) {
 	defer srv.loopWG.Done()
 	var (
@@ -591,6 +594,7 @@ func (srv *Server) run(dialstate dialer) {
 	}
 
 	// removes t from runningTasks
+	//定义了一个函数，用来从runningTasks队列删除某个Task
 	delTask := func(t task) {
 		for i := range runningTasks {
 			if runningTasks[i] == t {
@@ -602,6 +606,7 @@ func (srv *Server) run(dialstate dialer) {
 	// starts until max number of active tasks is satisfied
 	startTasks := func(ts []task) (rest []task) {
 		i := 0
+		//同时开始连接的节点数量是16个。 遍历 runningTasks队列，并启动这些任务
 		for ; len(runningTasks) < maxActiveDialTasks && i < len(ts); i++ {
 			t := ts[i]
 			srv.log.Trace("New dial task", "task", t)
@@ -612,8 +617,11 @@ func (srv *Server) run(dialstate dialer) {
 	}
 	scheduleTasks := func() {
 		// Start from queue first.
+		//首先调用startTasks启动一部分，把剩下的返回给queuedTasks
+
 		queuedTasks = append(queuedTasks[:0], startTasks(queuedTasks)...)
 		// Query dialer for new tasks and start as many as possible now.
+		//调用newTasks来生成任务，并尝试用startTasks启动。并把暂时无法启动的放入queuedTasks队列
 		if len(runningTasks) < maxActiveDialTasks {
 			nt := dialstate.newTasks(len(runningTasks)+len(queuedTasks), peers, time.Now())
 			queuedTasks = append(queuedTasks, startTasks(nt)...)
@@ -622,6 +630,8 @@ func (srv *Server) run(dialstate dialer) {
 
 running:
 	for {
+		//调用 dialstate.newTasks来生成新任务。 并调用startTasks启动新任务。
+		//如果 dialTask已经全部启动，那么会生成一个睡眠超时任务
 		scheduleTasks()
 
 		select {
@@ -690,6 +700,9 @@ running:
 		case c := <-srv.addpeer:
 			// At this point the connection is past the protocol handshake.
 			// Its capabilities are known and the remote identity is verified.
+			// 两次握手之后会调用checkpoint把连接发送到addpeer这个channel。
+			// 然后通过newPeer创建了Peer对象。
+			// 启动一个goroutine 启动peer对象。 调用了peer.run方法。
 			err := srv.protoHandshakeChecks(peers, inboundCount, c)
 			if err == nil {
 				// The handshakes are done and it passed all checks.
@@ -795,6 +808,7 @@ type tempError interface {
 
 // listenLoop runs in its own goroutine and accepts
 // inbound connections.
+//开启一个无限循环的goroutine,用来接收外部主动连接者
 func (srv *Server) listenLoop() {
 	defer srv.loopWG.Done()
 	srv.log.Info("RLPx listener up", "self", srv.makeSelf(srv.listener, srv.ntab))
@@ -803,6 +817,7 @@ func (srv *Server) listenLoop() {
 	if srv.MaxPendingPeers > 0 {
 		tokens = srv.MaxPendingPeers
 	}
+	//同时处理的连接defaultMaxPendingPeers
 	slots := make(chan struct{}, tokens)
 	for i := 0; i < tokens; i++ {
 		slots <- struct{}{}

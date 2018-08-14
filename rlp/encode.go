@@ -583,6 +583,8 @@ func makePtrWriter(typ reflect.Type) (writer, error) {
 
 // putint writes i to the beginning of b in big endian byte
 // order, using the least number of bytes needed to represent i.
+//以太坊中要求数字必须是一个大端字节序的、没有零占位的存储的格式（也就是说，一个整数0和一个空数组是等同的）
+//大端模式:高位字节排放在内存的低地址端，低位字节排放在内存的高地址端
 func putint(b []byte, i uint64) (size int) {
 	switch {
 	case i < (1 << 8):
